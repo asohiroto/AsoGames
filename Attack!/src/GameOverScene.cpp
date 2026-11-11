@@ -1,0 +1,65 @@
+﻿#include "GameOverScene.h"
+#include "GameDefine.h"
+#include "DxLib.h"
+#include "Mouse.h"
+#include "Color.h"
+#include "SceneManager.h"
+#include "StartScene.h"
+#include <memory>
+
+using namespace GameDefine;
+
+GameOverScene::GameOverScene(SceneManager& _sceneManager) :
+	SceneBase(_sceneManager),
+	_over1Y(0),
+	_over2Y(0)
+{
+
+}
+
+GameOverScene::~GameOverScene()
+{
+	DeleteGraph(_bgH);
+}
+
+void GameOverScene::Init()
+{
+	_bgH = LoadGraph("Data/ゲームオーバーシーン.png");
+}
+
+void GameOverScene::End()
+{
+
+}
+
+void GameOverScene::Update()
+{
+	// カウント増加
+	_count++;
+
+	GetMousePoint(&_mousePosX, &_mousePosY);
+
+	// 現在のカウントに応じて、Game Overの文字の座標を変化させる
+	_over1Y = (int)(sin(_count * 0.1) * 5);
+	_over2Y = (int)(sin((_count * 0.1) + 0.2) * 5);
+
+	// 左クリックでスタートシーンに遷移
+	if (Mouse::IsTrigger(MOUSE_INPUT_LEFT))
+	{
+		_sceneManager.ChangeScene(std::make_shared<StartScene>(_sceneManager));
+	}
+
+}
+
+void GameOverScene::Draw()
+{
+	DrawGraph(0, 0, _bgH, true);
+
+	SetFontSize(250);
+	DrawFormatString(30, 30 + _over1Y, color::BlackColor, "Game Over...");
+	DrawFormatString(20, 20 + _over2Y, color::DarkRedColor, "Game Over...");
+
+	SetFontSize(80);
+	DrawFormatString(WIDTH / 2 - 70, HEIGHT / 2 - 10, color::DarkGrayColor, "Click to Restart...?");
+	DrawFormatString(WIDTH / 2 - 70 + 5, HEIGHT / 2 - 10 + 5, color::NavyColor, "Click to Restart...?");
+}
