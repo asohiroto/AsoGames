@@ -1,0 +1,193 @@
+﻿#define NOMINMAX
+#include "SceneGame.h"
+
+#include "Camera.h"
+#include "GameDefine.h"
+#include "Input.h"
+#include "Player.h"
+#include "SceneManager.h"
+
+#include <DxLib.h>
+
+#include <algorithm>
+
+using namespace GameDefine;
+
+SceneGame::SceneGame() :
+	p_Player(nullptr),
+	p_PlayerSub(nullptr),
+	p_Camera(nullptr),
+	_hitstopCount(0),
+	_zoomDistance(0),
+	_skyDomeH(-1),
+	_border(WIDTH / 2),
+	p_Manager(nullptr)
+{
+
+}
+
+SceneGame::~SceneGame()
+{
+}
+
+void SceneGame::Init(SceneManager* pManager, int playerH, int subH, int skyDomeH)
+{
+	p_Player = std::make_shared<Player>();
+	p_Player->Init(1, playerH, subH);
+	p_PlayerSub = std::make_shared<Player>();
+	p_PlayerSub->Init(2, playerH, subH);
+	p_Camera = std::make_shared<Camera>();
+	p_Camera->Init(p_Player, p_PlayerSub);
+	p_CameraSub = std::make_shared<Camera>();
+	p_CameraSub->Init(p_PlayerSub, p_Player);
+
+	p_Manager = pManager;
+
+	_zoomDistance = CAMERA_DISTANCE;
+
+	_skyDomeH = skyDomeH;
+
+	MV1SetScale(_skyDomeH, VGet(5.0f, 5.0f, 5.0f));
+	MV1SetPosition(_skyDomeH, VGet(0.0f, 0.0f, 0.0f));
+}
+
+void SceneGame::Update(std::shared_ptr<Input> pInput, std::shared_ptr<Input> pInputSub)
+{
+	_border = WIDTH * (static_cast<float>(p_Player->GetHp()) / (static_cast<float>(p_Player->GetHp()) + static_cast<float>(p_PlayerSub->GetHp())));
+
+	p_Camera->SetCameraBorder(_border);
+	p_CameraSub->SetCameraBorder(_border);
+
+	p_Camera->Update(p_Player, p_PlayerSub, pInput);
+	p_CameraSub->Update(p_PlayerSub, p_Player, pInputSub);
+
+	// ヒットストップする場合は、ここをループ
+	if (_hitstopCount > 0)
+	{
+		_hitstopCount--;
+		_zoomDistance += (CAMERA_HITSTOP_ZOOM - _zoomDistance) * ZOOM_LERP_RATE;
+		p_Camera->SetCameraDistance(_zoomDistance);
+		return;
+	}
+
+	_zoomDistance += (CAMERA_DISTANCE - _zoomDistance) * ZOOM_LERP_RATE;
+	p_Camera->SetCameraDistance(_zoomDistance);
+
+	p_Player->Update(p_Camera->GetCameraYaw(), pInput, p_PlayerSub);
+	p_PlayerSub->Update(p_CameraSub->GetCameraYaw(), pInputSub, p_Player);
+
+	// 両プレイヤーからヒットストップのフレームを取得
+	int request1 = p_Player->HitstopRequest();
+	int request2 = p_PlayerSub->HitstopRequest();
+
+	_hitstopCount = std::max(request1, request2);
+
+	if (p_Player->GetHp() <= 5)
+	{
+		p_Player->DetachAnim();
+		p_Manager->ChangeScene(SceneManager::SceneName::RESULT, 2);
+	}
+	else if (p_PlayerSub->GetHp() <= 5)
+	{
+		p_Player->DetachAnim();
+		p_Manager->ChangeScene(SceneManager::SceneName::RESULT, 1);
+	}
+
+}
+
+void SceneGame::Draw()
+{
+	// 前フレームの描画範囲が残っている可能性があるので、まず全体に戻す
+	SetDrawArea(0, 0, WIDTH, HEIGHT);
+
+	// プレイヤー１用の画面表示処理
+	p_Camera->Draw(1);
+
+	p_Player->Draw();
+	p_PlayerSub->Draw();
+
+	// ステージの床を描画
+	DrawCube3D
+	(
+		VGet(-(GRID_NUM / 2 * GRID_SIZE), -20.0f, -(GRID_NUM / 2 * GRID_SIZE)),
+		VGet(GRID_NUM / 2 * GRID_SIZE, 0, GRID_NUM / 2 * GRID_SIZE),
+		0xffffff, 0xffffff, true
+	);
+
+	// スカイドームの描画
+	MV1DrawModel(_skyDomeH);
+
+	DrawCircle(_border / 2, HEIGHT / 2, 2, 0xffffff, true);
+
+#ifdef _DEBUG
+	DrawGrid();
+#endif
+
+	// プレイヤー２用の画面表示処理
+	p_CameraSub->Draw(2);
+
+	p_Player->Draw();
+	p_PlayerSub->Draw();
+
+	// ステージの床を描画
+	DrawCube3D
+	(
+		VGet(-(GRID_NUM / 2 * GRID_SIZE), -20.0f, -(GRID_NUM / 2 * GRID_SIZE)),
+		VGet(GRID_NUM / 2 * GRID_SIZE, 0, GRID_NUM / 2 * GRID_SIZE),
+		0xffffff, 0xffffff, true
+	);
+
+	// スカイドームの描画
+	MV1SetScale(_skyDomeH, VGet(5.0f, 5.0f, 5.0f));
+	MV1SetPosition(_skyDomeH, VGet(0.0f, 0.0f, 0.0f));
+	MV1DrawModel(_skyDomeH);
+
+	DrawCircle((WIDTH + _border) / 2, HEIGHT / 2, 2, 0xffffff, true);
+
+#ifdef _DEBUG
+	DrawGrid();
+#endif
+
+	// 二つの画面を合わせて一つの画面に表示させる
+	SetDrawArea(0, 0, WIDTH, HEIGHT);
+
+	// 仕切り線（画面中央の縦線）
+	DrawLine(_border, 0, _border, HEIGHT, 0xffff00, 3);
+
+#ifdef _DEBUG
+	// 画面判別用
+	DrawString(7, 10, "Player : 1", 0xffffff);
+	DrawString((WIDTH / 2) + 10, 10, "Player : 2", 0xffffff);
+
+	// デバッグ用　位置表示
+	DrawFormatString(7, 30, 0xffffff, "Position X : %.2f", p_Player->GetPos().x);
+	DrawFormatString(7, 50, 0xffffff, "         Y : %.2f", p_Player->GetPos().y);
+	DrawFormatString(7, 70, 0xffffff, "         Z : %.2f", p_Player->GetPos().z);
+	DrawFormatString(7, 90, 0xffffff, "HP : %d / %d", p_Player->GetHp(), p_Player->GetMaxHp());
+	DrawFormatString((WIDTH / 2) + 10, 30, 0xffffff, "Position X : %.2f", p_PlayerSub->GetPos().x);
+	DrawFormatString((WIDTH / 2) + 10, 50, 0xffffff, "         Y : %.2f", p_PlayerSub->GetPos().y);
+	DrawFormatString((WIDTH / 2) + 10, 70, 0xffffff, "         Z : %.2f", p_PlayerSub->GetPos().z);
+	DrawFormatString((WIDTH / 2) + 10, 90, 0xffffff, "HP : %d / %d", p_PlayerSub->GetHp(), p_PlayerSub->GetMaxHp());
+#endif
+}
+
+void SceneGame::DrawGrid() const
+{
+	const float lineStartX = GRID_SIZE * -(GRID_NUM * 0.5f);
+	const float lineEndX = -lineStartX;
+
+	for (int z = 0; z <= GRID_NUM; z++)
+	{
+		const float lineZ = GRID_SIZE * z - GRID_SIZE * GRID_NUM * 0.5f;
+		DrawLine3D(VGet(lineStartX, 0, lineZ), VGet(lineEndX, 0, lineZ), 0xffffff);
+	}
+
+	const float lineStartZ = GRID_SIZE * -(GRID_NUM * 0.5f);
+	const float lineEndZ = -lineStartZ;
+
+	for (int x = 0; x <= GRID_NUM; x++)
+	{
+		const float lineX = GRID_SIZE * x - GRID_SIZE * GRID_NUM * 0.5f;
+		DrawLine3D(VGet(lineX, 0, lineStartZ), VGet(lineX, 0, lineEndZ), 0xffffff);
+	}
+}
