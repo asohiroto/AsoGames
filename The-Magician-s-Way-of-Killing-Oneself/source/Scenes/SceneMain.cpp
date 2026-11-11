@@ -1,0 +1,225 @@
+﻿#include "SceneMain.h"
+#include "Players/Player.h"
+#include "Cameras/Camera.h"
+#include "Enemys/EnemyManager.h"
+#include "Colls/Collision.h"
+#include "Magics/MagicManager.h"
+#include "Colls/MagicCollision.h"
+#include "UIs/UIManager.h"
+#include "SkyDome.h"
+#include "Effects/EffectManager.h"
+#include "GameDefine.h"
+
+namespace
+{
+	// 床に描画するグリッドのサイズ
+	constexpr float GRID_SIZE = 100;
+	// 床に描画するグリッドの数
+	constexpr float GRID_NUM = 60;
+	// リポップするまでのフレーム数
+	constexpr int REPOP_FRAME = 60;
+	// 床の厚み（下方向のオフセット）
+	constexpr float FLOOR_HEIGHT = -20.0f;
+	// 床の色
+	constexpr int FLOOR_COLOR = 0xffffff;
+	// グリッド線の色
+	constexpr int GRID_LINE_COLOR = 0x000000;
+	// リポップ演出時の暗転色
+	constexpr int OVERLAY_COLOR = 0x000000;
+	// KILL数の縁取り色
+	constexpr int KILL_OUTLINE_COLOR = 0xff0000;
+	// KILL数の文字色
+	constexpr int KILL_TEXT_COLOR = 0xffffff;
+	// リポップ演出時のKILL数フォントサイズ
+	constexpr int BIG_KILL_FONT_SIZE = 400;
+	// 通常時のKILL数フォントサイズ
+	constexpr int SMALL_KILL_FONT_SIZE = 40;
+	// デフォルトのフォントサイズ
+	constexpr int NORMAL_FONT_SIZE = 20;
+	// 大気エフェクトのループ再生周期
+	constexpr int ATMOS_LOOP_FRAME = 240;
+}
+
+SceneMain::SceneMain() :
+	p_Player(nullptr),
+	p_Camera(nullptr),
+	p_EManager(nullptr),
+	p_Coll(nullptr),
+	p_MManager(nullptr),
+	p_MColl(nullptr),
+	p_UI(nullptr),
+	p_Dome(nullptr),
+	p_EffectManager(nullptr),
+	_playerTempH(-1), _enemyTempH(-1),
+	_playerMagicsTemp(),
+	_domeTempH(-1),
+	_hitTempH(-1),
+	_atmosH(-1), _atmosPlayingH(-1), _atmosCount(0),
+	_hitStopCount(0), _score(0), _repopCount(0), _killCount(0),
+	_gameSE()
+{
+}
+
+SceneMain::~SceneMain()
+{
+}
+
+void SceneMain::Init(int score, int killCount, int pHpH, int eHpH, int ultH)
+{
+	_score = score;
+	_killCount = killCount;
+
+	p_Player = std::make_shared<Player>();
+	p_Camera = std::make_shared<Camera>();
+	p_EManager = std::make_shared<EnemyManager>();
+	p_Coll = std::make_shared<Collision>();
+	p_MManager = std::make_shared<MagicManager>();
+	p_MColl = std::make_shared<MagicCollision>();
+	p_UI = std::make_shared<UIManager>();
+	p_Dome = std::make_unique<SkyDome>();
+	p_EffectManager = std::make_shared<EffectManager>();
+
+	p_Player->Init(_playerTempH, _playerMagicsTemp, _gameSE);
+	p_Camera->Init();
+	p_EManager->Init(_enemyTempH, _playerMagicsTemp, _score);
+	p_MManager->Init();
+	p_UI->Init(p_EManager->GetMaxHp(), p_Player->GetMaxHp(),
+		p_Player->GetMaxMp(), p_Player->GetMaxCharge(),
+		pHpH, eHpH, ultH);
+	p_Dome->Init(_domeTempH);
+	p_Coll->Init();
+	p_MColl->Init(_hitTempH, _score, _gameSE);
+
+	p_EffectManager->Init();
+	p_EffectManager->Load();
+
+	_repopCount = REPOP_FRAME;
+}
+
+void SceneMain::End()
+{
+
+}
+
+void SceneMain::Update(const std::shared_ptr<Input>& pInput)
+{
+	_atmosCount++;
+
+	p_Camera->Update(p_Player, p_EManager->GetEnemyPointer(), pInput);
+
+	// リポップ演出中はロックオンカメラに固定し、他の更新は行わない
+	if (_repopCount > 0)
+	{
+		p_Camera->SetCameraMode(true);
+		p_Player->SetRotate(p_Camera->GetCameraYaw());
+		_repopCount--;
+		if (_repopCount == 0) p_Camera->SetCameraMode(false);
+		return;
+	}
+
+	// ヒットストップ中は他の更新を止める
+	if (_hitStopCount > 0)
+	{
+		_hitStopCount--;
+		return;
+	}
+
+	p_Dome->Update();
+	p_Player->Update(pInput, p_Camera, p_MManager);
+	p_EManager->Update(p_Player->GetPos(), p_MManager);
+	p_Coll->Update(p_Player, p_EManager->GetEnemyPointer());
+	p_MManager->Update(p_Player->GetPos(), p_EManager->GetEnemyPos());
+	p_MColl->Update(p_Player, p_EManager->GetEnemyPointer(), p_MManager->GetPlayerList(), p_MManager->GetEnemyList());
+	p_MManager->RemoveList();
+
+	p_UI->Update(p_EManager->GetNowHp(), p_Player->GetNowHp(),
+		p_Player->GetNowMp(), p_Player->GetNowCharge(), p_MColl->IsEnemyHitThisFrame());
+
+	p_EffectManager->Update();
+
+	_hitStopCount = p_MColl->GetHitStopFrame();
+
+	// 大気表現のエフェクトを一定周期でループ再生する
+	if (_atmosCount % ATMOS_LOOP_FRAME == 0)
+		_atmosPlayingH = PlayEffekseer3DEffect(_atmosH);
+
+	if (_atmosCount % ATMOS_LOOP_FRAME == ATMOS_LOOP_FRAME - 1)
+		StopEffekseer3DEffect(_atmosPlayingH);
+}
+
+void SceneMain::Draw()
+{
+	p_Camera->Draw();
+
+	DrawStage();
+
+	p_Dome->Draw();
+	p_Player->Draw();
+	p_EManager->Draw();
+	p_MManager->Draw();
+	p_EffectManager->Draw();
+	p_UI->Draw();
+
+	// リポップ演出中は画面を暗転させKILL数を大きく表示する
+	if (_repopCount > 0)
+	{
+		DrawBox(0, 200, GameDefine::WIDTH, 800, OVERLAY_COLOR, true);
+
+		SetFontSize(BIG_KILL_FONT_SIZE);
+		DrawFormatString(60, 310, KILL_OUTLINE_COLOR, "%d KILL", _killCount);
+		DrawFormatString(50, 300, KILL_TEXT_COLOR, "%d KILL", _killCount);
+		SetFontSize(NORMAL_FONT_SIZE);
+	}
+	else
+	{
+		SetFontSize(SMALL_KILL_FONT_SIZE);
+		// 敵体力ゲージの素材内余白を考慮し、ゲージ本体に重なる位置まで右上へ寄せて配置
+		DrawFormatString(895, 135, KILL_OUTLINE_COLOR, "%d KILL", _killCount);
+		DrawFormatString(890, 130, KILL_TEXT_COLOR, "%d KILL", _killCount);
+		SetFontSize(NORMAL_FONT_SIZE);
+	}
+
+
+#ifdef _DEBUG
+	DrawFormatString(1300, 300, 0x000000, "score : %d", _score);
+#endif
+}
+
+void SceneMain::DrawStage()
+{
+	// ステージの床を描画
+	DrawCube3D
+	(
+		VGet(-(GRID_NUM / 2 * GRID_SIZE), FLOOR_HEIGHT, -(GRID_NUM / 2 * GRID_SIZE)),
+		VGet(GRID_NUM / 2 * GRID_SIZE, 0, GRID_NUM / 2 * GRID_SIZE),
+		FLOOR_COLOR, FLOOR_COLOR, true
+	);
+
+	float lineStartX = GRID_SIZE * -(GRID_NUM * 0.5f);
+	float lineEndX = -lineStartX;
+
+	for (int z = 0; z <= GRID_NUM; z++)
+	{
+		float lineZ = GRID_SIZE * z - GRID_SIZE * GRID_NUM * 0.5f;
+		DrawLine3D(VGet(lineStartX, 0, lineZ), VGet(lineEndX, 0, lineZ), GRID_LINE_COLOR);
+	}
+
+	float lineStartZ = GRID_SIZE * -(GRID_NUM * 0.5f);
+	float lineEndZ = -lineStartZ;
+
+	for (int x = 0; x <= GRID_NUM; x++)
+	{
+		float lineX = GRID_SIZE * x - GRID_SIZE * GRID_NUM * 0.5f;
+		DrawLine3D(VGet(lineX, 0, lineStartZ), VGet(lineX, 0, lineEndZ), GRID_LINE_COLOR);
+	}
+}
+
+int SceneMain::GetPlayerHp() const
+{
+	return p_Player->GetNowHp();
+}
+
+int SceneMain::GetEnemyHp() const
+{
+	return p_EManager->GetNowHp();
+}

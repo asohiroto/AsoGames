@@ -1,0 +1,77 @@
+﻿#include "MagicBeam.h"
+#include "MagicManager.h"
+#include <EffekseerForDXLib.h>
+
+namespace
+{
+	// 半径
+	constexpr float RADIUS = 100.0f;
+	// 速度
+	constexpr float SPEED = 90.0f;
+	// 生成位置の補正用
+	constexpr float POSITION_OFFSET = 50.0f;
+	// 生成高さの補正用
+	constexpr float HEIGHT_OFFSET = 300.0f;
+	// ダメージ
+	constexpr int DAMAGE = 75;
+	// ヒットストップするフレーム数
+	constexpr int HIT_STOP_FRAME = 3;
+	// 当たり判定描画用の色
+	constexpr int COLOR = 0x0000ff;
+}
+
+MagicBeam::MagicBeam() :
+	_magicBeam()
+{
+}
+
+MagicBeam::~MagicBeam()
+{
+}
+
+void MagicBeam::Init()
+{
+	// 初期設定
+	_magicBeam.radius = RADIUS;
+	_magicBeam.speed = SPEED;
+	_magicBeam.type = MagicType::MagicBeam;
+	_magicBeam.isExist = false;
+	_magicBeam.isEnemy = true;
+	_magicBeam.color = COLOR;
+	_magicBeam.segmentStPos = VGet(0.0f, 0.0f, 0.0f);
+	_magicBeam.segmentEndPos = VGet(0.0f, 0.0f, 0.0f);
+	_magicBeam.damage = DAMAGE;
+	_magicBeam.chargeCount = 0;
+	_magicBeam.existCount = 0;
+	_magicBeam.chargeAmount = 0;
+	_magicBeam.hitStopFrame = HIT_STOP_FRAME;
+}
+
+void MagicBeam::End()
+{
+}
+
+void MagicBeam::Update()
+{
+}
+
+void MagicBeam::Draw()
+{
+}
+
+void MagicBeam::GenerateBeam(VECTOR pos, VECTOR front, bool isEnemy, const std::shared_ptr<MagicManager>& pManager)
+{
+	// 生成位置を正面方向・高さ方向に補正
+	VECTOR tempPos = VAdd(pos, VScale(VNorm(front), POSITION_OFFSET));
+	tempPos.y += HEIGHT_OFFSET;
+	_magicBeam.segmentEndPos = tempPos;
+	_magicBeam.segmentStPos = tempPos;
+	_magicBeam.isExist = true;
+	_magicBeam.isEnemy = isEnemy;
+	_magicBeam.moveDirection = VNorm(front);
+	_magicBeam.chargeCount = 0;
+	_magicBeam.existCount = 0;
+	_magicBeam.effectH = PlayEffekseer3DEffect(_magicBeam.effectResourceH);
+
+	pManager->EntryList(_magicBeam);
+}

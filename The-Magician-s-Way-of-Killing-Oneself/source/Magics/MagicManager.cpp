@@ -1,0 +1,136 @@
+﻿#include "MagicManager.h"
+#include "MagicMove.h"
+#include <EffekseerForDXLib.h>
+
+namespace
+{
+	// プレイヤーの高さ補正用
+	constexpr float PLAYER_HEIGHT_OFFSET = 300.0f;
+	// 敵の高さ補正用
+	constexpr float ENEMY_HEIGHT_OFFSET = 300.0f;
+	// マジックフューリーの目的地の深さ
+	constexpr float FURY_DIPTH = 0.0f;
+}
+
+MagicManager::MagicManager() :
+	p_MagicMove(nullptr),
+	_enemyLock(false),
+	_enePos(VGet(0.0f, 0.0f, 0.0f))
+{
+}
+
+MagicManager::~MagicManager()
+{
+	// 再生中の全エフェクトを停止
+	for (auto& magic : _playerMagics)
+		StopEffekseer3DEffect(magic.effectH);
+
+	for (auto& eneMagic : _enemyMagics)
+		StopEffekseer3DEffect(eneMagic.effectH);
+}
+
+void MagicManager::Init()
+{
+	p_MagicMove = std::make_shared<MagicMove>();
+	p_MagicMove->Init();
+}
+
+void MagicManager::End()
+{
+
+}
+
+void MagicManager::Update(VECTOR playerPos, VECTOR enemyPos)
+{
+	_enePos = enemyPos;
+
+	// プレイヤーが使用した魔法の移動処理
+	for (int i = 0; i < _playerMagics.size(); i++)
+	{
+		if (_playerMagics[i].isExist)
+		{
+			if (_playerMagics[i].type == MagicBase::MagicType::MagicShot)
+				p_MagicMove->ShotMove(_playerMagics[i]);
+			else if (_playerMagics[i].type == MagicBase::MagicType::MagicMissile)
+				p_MagicMove->MissileMove(_playerMagics[i], enemyPos);
+			else if (_playerMagics[i].type == MagicBase::MagicType::MagicFury)
+				p_MagicMove->FuryMove(_playerMagics[i], VAdd(enemyPos, VGet(0.0f, -FURY_DIPTH, 0.0f)));
+			else if (_playerMagics[i].type == MagicBase::MagicType::MagicBeam)
+				p_MagicMove->BeamMove(_playerMagics[i], enemyPos, VAdd(playerPos, VGet(0.0f, PLAYER_HEIGHT_OFFSET, 0.0f)));
+		}
+
+		// 到達した魔法（フューリー）はロックオンを解除して消去
+		if (_playerMagics[i].isArrived)
+		{
+			_enemyLock = false;
+			_playerMagics[i].isExist = false;
+		}
+	}
+
+	// 敵が使用した魔法の移動処理
+	for (int i = 0; i < _enemyMagics.size(); i++)
+	{
+		if (_enemyMagics[i].isExist)
+		{
+			if (_enemyMagics[i].type == MagicBase::MagicType::MagicShot)
+				p_MagicMove->ShotMove(_enemyMagics[i]);
+			else if (_enemyMagics[i].type == MagicBase::MagicType::MagicMissile)
+				p_MagicMove->MissileMove(_enemyMagics[i], playerPos);
+			else if (_enemyMagics[i].type == MagicBase::MagicType::MagicBeam)
+				p_MagicMove->BeamMove(_enemyMagics[i], playerPos, VAdd(enemyPos, VGet(0.0f, ENEMY_HEIGHT_OFFSET, 0.0f)));
+		}
+	}
+}
+
+void MagicManager::Draw()
+{
+#ifdef _DEBUG
+	for (int i = 0; i < _playerMagics.size(); i++)
+	{
+		if (_playerMagics[i].isExist)
+			DrawMagicHitBox(_playerMagics[i]);
+	}
+
+	for (int i = 0; i < _enemyMagics.size(); i++)
+	{
+		if (_enemyMagics[i].isExist)
+			DrawMagicHitBox(_enemyMagics[i]);
+	}
+#endif
+}
+
+void MagicManager::EntryList(MagicBase::MagicData data)
+{
+	if (data.isEnemy) _enemyMagics.push_back(data);
+	else _playerMagics.push_back(data);
+}
+
+
+void MagicManager::RemoveList()
+{
+	// 存在しなくなった魔法のエフェクトを停止
+	for (auto& magic : _playerMagics)
+		if (!magic.isExist && magic.effectH != -1)
+			StopEffekseer3DEffect(magic.effectH);
+
+	for (auto& eneMagic : _enemyMagics)
+		if (!eneMagic.isExist && eneMagic.effectH != -1)
+			StopEffekseer3DEffect(eneMagic.effectH);
+
+	// 存在しなくなった魔法をリストから削除
+	std::erase_if(_playerMagics, [](const MagicBase::MagicData& data) {return !data.isExist; });
+	std::erase_if(_enemyMagics, [](const MagicBase::MagicData& data) {return !data.isExist; });
+}
+
+void MagicManager::DrawMagicHitBox(MagicBase::MagicData data)
+{
+	// ビーム・フューリーは線分（カプセル）、それ以外は球で当たり判定を描画
+	if (data.type == MagicBase::MagicType::MagicBeam || data.type == MagicBase::MagicType::MagicFury)
+	{
+		DrawCapsule3D(data.segmentStPos, data.segmentEndPos, data.radius, 16, data.color, data.color, false);
+	}
+	else
+	{
+		DrawSphere3D(data.pos, data.radius, 16, data.color, data.color, false);
+	}
+}

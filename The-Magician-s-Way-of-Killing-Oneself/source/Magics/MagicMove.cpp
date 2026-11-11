@@ -1,0 +1,172 @@
+﻿#include "MagicMove.h"
+#include <EffekseerForDXLib.h>
+#include <cmath>
+
+namespace
+{
+	// マジックショットの最大移動距離
+	constexpr float SHOT_DISTANCE_MAX = 7500.0f;
+	// マジックミサイルの最大移動距離
+	constexpr float MISSILE_DISTANCE_MAX = 7500.0f;
+	// マジックビームの最大移動距離
+	constexpr float BEAM_DISTANCE_MAX = 7500.0f;
+	// 目標位置の高さ補正用
+	constexpr float HEIGHT_OFFSET = 300.0f;
+	// 加速度
+	constexpr float ACCEL_RATE = 25.0f;
+	// 加速度の補正
+	constexpr float ACCEL_OFFSET = 500.0f;
+	// マジックフューリーに欠ける線形補間度
+	constexpr float FURY_LERP_RATE = 0.15f;
+	// 到着したとみなす幅
+	constexpr float ARRIVED_LENGTH = 0.05f;
+	// ビームが狙っているフレーム
+	constexpr int BEAM_AIM_COUNT = 20;
+	// ビームを発射するまでのフレーム
+	constexpr int BEAM_FIRE_COUNT = 30;
+	// ビームが存在できるフレーム
+	constexpr int BEAM_EXIST_COUNT = 30;
+	// マジックビームの長さの倍率
+	constexpr float BEAM_LENGTH_SCALE = 10000.0f;
+}
+
+MagicMove::MagicMove()
+{
+}
+
+MagicMove::~MagicMove()
+{
+}
+
+void MagicMove::Init()
+{
+}
+
+void MagicMove::End()
+{
+}
+
+void MagicMove::Update()
+{
+}
+
+void MagicMove::Draw()
+{
+}
+
+void MagicMove::ShotMove(MagicBase::MagicData& data)
+{
+	// 座標を更新
+	data.pos = VAdd(data.pos, VScale(data.moveDirection, data.speed));
+	data.movedDistance += data.speed;
+
+	if (data.effectH != -1)
+		SetPosPlayingEffekseer3DEffect(data.effectH, data.pos.x, data.pos.y, data.pos.z);
+
+	// 最大距離まで移動したら消す
+	if (data.movedDistance >= SHOT_DISTANCE_MAX)
+	{
+		data.isExist = false;
+		data.movedDistance = 0.0f;
+	}
+}
+
+void MagicMove::MissileMove(MagicBase::MagicData& data, VECTOR targetPos)
+{
+	// ターゲットまでの方向と距離を計算
+	VECTOR toTarget = VSub(VGet(targetPos.x, HEIGHT_OFFSET, targetPos.z), data.pos);
+	VECTOR toTargetDir = VNorm(toTarget);
+	float toTargetDist = VSize(toTarget);
+
+	// 距離に応じた加速率（近いほど急旋回する）
+	float rate = ACCEL_OFFSET / toTargetDist;
+
+	// 誘導方向に加速して速度に反映（ホーミング）
+	data.velo = VAdd(data.velo, VScale(toTargetDir, ACCEL_RATE * rate));
+
+	// 座標を更新	
+	data.pos = VAdd(data.pos, data.velo);
+	data.movedDistance += VSize(data.velo);
+
+	if (data.effectH != -1)
+		SetPosPlayingEffekseer3DEffect(data.effectH, data.pos.x, data.pos.y, data.pos.z);
+
+	// 最大距離まで移動したら消す
+	if (data.movedDistance >= MISSILE_DISTANCE_MAX)
+	{
+		data.isExist = false;
+		data.movedDistance = 0.0f;
+	}
+}
+
+void MagicMove::BeamMove(MagicBase::MagicData& data, VECTOR targetPos, VECTOR startPos)
+{
+	data.chargeCount++;
+	data.existCount++;
+
+	// 狙いを定めるフェーズ
+	if (data.chargeCount <= BEAM_AIM_COUNT)
+	{
+		// ターゲット方向を計算（水平面のみ）
+		VECTOR toTarget = VSub(targetPos, startPos);
+		toTarget.y = 0.0f;
+		if (VSize(toTarget) > 1.0f)
+		{
+			data.moveDirection = VNorm(toTarget);
+			data.beamTargetPos = VScale(data.moveDirection, BEAM_LENGTH_SCALE);
+		}
+		data.segmentEndPos = data.segmentStPos;
+	}
+	// 発射フェーズ
+	else if (data.chargeCount >= BEAM_FIRE_COUNT)
+	{
+		// 発射開始時に経過カウントをリセット
+		if (data.chargeCount == BEAM_FIRE_COUNT) data.existCount = 0;
+
+		data.segmentStPos = startPos;
+		if (data.isEnemy)
+		{
+			// 敵の場合は狙いを定めた方向に固定して伸ばす
+			data.segmentEndPos = VAdd(startPos, data.beamTargetPos);
+
+		}
+		else
+		{
+			// プレイヤーの場合はターゲット座標まで伸ばす
+			data.segmentEndPos = targetPos;
+			data.segmentEndPos.y += HEIGHT_OFFSET;
+		}
+
+		// 発射から一定時間経過したら消滅
+		if (data.existCount >= BEAM_EXIST_COUNT)
+		{
+			data.isExist = false;
+			data.movedDistance = 0.0f;
+			data.chargeCount = 0;
+			data.existCount = 0;
+		}
+	}
+
+	// ビームの向きに合わせてエフェクトの位置・回転を更新
+	float dirAngle = atan2f(data.moveDirection.x, data.moveDirection.z);
+	SetPosPlayingEffekseer3DEffect(data.effectH, startPos.x, startPos.y, startPos.z);
+	SetRotationPlayingEffekseer3DEffect(data.effectH, 0.0f, dirAngle + DX_PI_F, 0.0f);
+}
+
+void MagicMove::FuryMove(MagicBase::MagicData& data, VECTOR targetPos)
+{
+	// 目標座標へ線形補間しながら落下させる
+	data.segmentEndPos = VAdd(data.segmentEndPos, VScale(VSub(targetPos, data.segmentEndPos), FURY_LERP_RATE));
+
+	//if (data.effectH != -1)
+	//	SetPosPlayingEffekseer3DEffect(data.effectH, targetPos.x, 0.0f, targetPos.z);
+
+	SetPosPlayingEffekseer3DEffect(data.effectH, data.segmentEndPos.x, data.segmentEndPos.y, data.segmentEndPos.z);
+
+	// 目標の高さまで到達したかを判定
+	if (data.segmentEndPos.y - targetPos.y <= ARRIVED_LENGTH)
+	{
+		data.isArrived = true;
+		data.movedDistance = 0.0f;
+	}
+}

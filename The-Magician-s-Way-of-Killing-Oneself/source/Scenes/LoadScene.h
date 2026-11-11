@@ -1,0 +1,60 @@
+﻿#pragma once
+#include "Bases/SceneBase.h"
+#include "Effects/EffectHandles.h"
+#include "Sounds/SoundInfo.h"
+#include <memory>
+
+class Input;
+
+class LoadScene : public SceneBase
+{
+public:
+	LoadScene();
+	virtual ~LoadScene() override;
+	void Init() override;
+	void End() override;
+	void Update(const std::shared_ptr<Input>& pInput) override;
+	void Draw() override;
+	// プレイヤーのモデルのハンドルを渡す
+	int GetPlayerH()const { return _playerH; }
+	// エネミーのモデルのハンドルを渡す
+	int GetEnemyH() const { return _enemyH; }
+	// スカイドームのモデルのハンドルを渡す
+	int GetNightDomeH() const { return _nightDomeH; }
+	int GetSunnyDomeH() const { return _sunnyDomeH; }
+	// ヒット時のエフェクトのハンドルを渡す
+	int GetHitEffectH() const { return _hitEffectH; }
+	// 大気エフェクトのハンドルを渡す
+	int GetAtmosH() const { return _atmosEffectH; }
+	// UIのハンドルを渡す
+	int GetPlayerHpBarH() const { return _playerHpBarH; }
+	int GetEnemyHpBarH() const { return _enemyHpBarH; }
+	int GetUltGaugeH() const { return _ultGaugeH; }
+	// ハンドル構造体を取得する
+	EffectHandles GetEffectHandles() const { return _playerMagics; }
+	BgmHandles GetBGMHanadles() const { return _gameBgm; }
+	SeHandles GetSeHandles() const { return _gameSE; }
+
+private:
+	// モデルのハンドルたち
+	int _playerH, _enemyH;
+	// ドームのハンドル
+	int _nightDomeH;
+	int _sunnyDomeH;
+	// モデルをロードしている数
+	int _totalRequestNum;
+	// プレイヤーが使用する魔法のハンドル
+	EffectHandles _playerMagics;
+	// ヒットエフェクトのハンドル
+	int _hitEffectH;
+	// 大気エフェクトのハンドル
+	int _atmosEffectH;
+	// カウンタ
+	int _count;
+	// 各種UIのハンドル
+	int _playerHpBarH, _enemyHpBarH, _ultGaugeH;
+	// BGM
+	BgmHandles _gameBgm;
+	// SE
+	SeHandles _gameSE;
+};
